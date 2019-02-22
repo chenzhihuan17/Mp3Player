@@ -79,8 +79,7 @@ int main(int argc, char **argv)
     "./download.mp3", /* name to store the file as if successful */
     NULL
   };
-    char *url = "http://protected-hd-01.0mzl.com/cia/musics/dvOUZDcmgOWHJlr8E2Y21fiBQVtu1UacidXLFCrrZq2ZXd7oiVhncTIFb6Q46S3c.mp3";
-  // char *url = "http://protected-hd-01.0mzl.com/cia/musics/iq8lYdP8VncMlLzkYXJ7etCxM7QDB2bVW6J4OEkZmH1kG7QItuoCWc4fI1i75tei.mp3";
+  char *url = "http://protected-hd-01.0mzl.com/cia/musics/dvOUZDcmgOWHJlr8E2Y21fiBQVtu1UacidXLFCrrZq2ZXd7oiVhncTIFb6Q46S3c.mp3";
   char *progress_data = "* ";
   
   curl_global_init(CURL_GLOBAL_DEFAULT); 
