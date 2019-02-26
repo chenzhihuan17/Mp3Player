@@ -23,9 +23,11 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-
+#include <string.h>
+#include <stdlib.h>
 #include "mad/mad.h"
 
+#if 1
 /*
  * This is perhaps the simplest example use of the MAD high-level API.
  * Standard input is mapped into memory via mmap(), then the high-level API
@@ -36,9 +38,34 @@
  */
 
 static int decode(unsigned char const *, unsigned long);
-
+#define BUFF_SIZE 2710614UL 
 int main(int argc, char *argv[])
 {
+	FILE *input_file;
+	input_file = fopen("./1.mp3", "rb");
+	
+	if(input_file == NULL)
+	{
+		fprintf(stderr,"open input file err\n");
+		return -1;
+	}
+	
+	char* buff = malloc(BUFF_SIZE);
+	if(buff == NULL)
+	{
+		fprintf(stderr,"malloc buff err\n");
+		return -1;
+	}
+	long read_size = 0;
+	read_size = fread(buff, BUFF_SIZE, 1, input_file);
+	fprintf(stderr, "read_size = %ld\n", read_size);
+	
+	int ret = decode(buff, BUFF_SIZE);
+	fprintf(stderr, "decode = %d\n", ret);
+	free(buff);
+	buff = NULL;
+	fclose(input_file);
+#if 0
   struct stat stat;
   void *fdm;
 
@@ -57,7 +84,7 @@ int main(int argc, char *argv[])
 
   if (munmap(fdm, stat.st_size) == -1)
     return 4;
-
+#endif
   return 0;
 }
 
@@ -220,3 +247,4 @@ int decode(unsigned char const *start, unsigned long length)
 
   return result;
 }
+#endif
