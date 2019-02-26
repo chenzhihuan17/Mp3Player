@@ -32,21 +32,14 @@
 
 /* curl stuff */
 #include <curl/curl.h>
-
-
 #include <stdio.h>
 #include <string.h>
-	 
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
 
-struct FtpFile {
-  const char *filename;
-  FILE *stream;
-};
+#include "curl_get.h"
 
 static size_t my_fwrite(void *buffer, size_t size, size_t nmemb, void *stream)
 {
@@ -67,40 +60,58 @@ int my_progress_func(char *progress_data,
                      double ultotal,
                      double ulnow)
 {
-  printf("%s %g / %g (%g %%)\n", progress_data, d, t, d*100.0/t);
+  //printf("%s %g / %g (%g %%)\n", progress_data, d, t, d*100.0/t);
   return 0;
 }
+
+size_t get_size_struct(void* ptr, size_t size, size_t nmemb, void* data){
+    return (size_t)(size * nmemb);
+}					 
  
-int main(int argc, char **argv)
+int get_http_content(void* url)
 {
   CURL *curl;
-  CURLcode res;
+  CURLcode res, ret;
   struct FtpFile ftpfile = {
     "./download.mp3", /* name to store the file as if successful */
     NULL
   };
-  char *url = "http://protected-hd-01.0mzl.com/cia/musics/dvOUZDcmgOWHJlr8E2Y21fiBQVtu1UacidXLFCrrZq2ZXd7oiVhncTIFb6Q46S3c.mp3";
+  char *url_tmp = (char*)url;
   char *progress_data = "* ";
-  
+  printf("url = %s\n", url_tmp);
   curl_global_init(CURL_GLOBAL_DEFAULT); 
   curl = curl_easy_init();
   if(curl)
   {
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);//显示详细信息
+    curl_easy_setopt(curl, CURLOPT_URL, url_tmp);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, my_fwrite);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ftpfile);
 
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);                        //0L打开进度表，1L关闭进度表
-    curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, my_progress_func);   //进度条回调函数
-    curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, progress_data);    //传递给进度回调的自定义指针 
+    //curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);                        //0L打开进度表，1L关闭进度表
+    //curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, my_progress_func);   //进度条回调函数
+    //curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, progress_data);    //传递给进度回调的自定义指针 
     res = curl_easy_perform(curl);
-    /* always cleanup */
-    curl_easy_cleanup(curl);
-    if(CURLE_OK != res) {
-      /* we failed */
-      fprintf(stderr, "curl told us %d\n", res);
-    }	
+   	if(CURLE_OK != res) {
+	 	/* we failed */
+	 	fprintf(stderr, "curl told us %d\n", res);
+   	}   
+
+	/* extract the content-type */
+    char *ct = NULL;
+    res = curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &ct);
+    if(!res && ct) {
+      printf("####Content-Type: %s\n", ct);
+    }
+	/* check the size */
+	double cl;
+    ret = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &cl);
+    if(!ret) {
+      printf("####Content-Length: %.0f\n", cl);
+    }
+   	fprintf(stderr, "curl_easy_getinfo %d\n", ret);
+	/* always cleanup */
+   	curl_easy_cleanup(curl);
   }
   if(ftpfile.stream)
     fclose(ftpfile.stream); /* close the local file */
