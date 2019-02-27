@@ -38,7 +38,7 @@
  */
 
 static int decode(unsigned char const *, unsigned long);
-#define BUFF_SIZE 2710614UL 
+#define BUFF_SIZE 8192 * 11 
 int main(int argc, char *argv[])
 {
 	FILE *input_file;
@@ -50,18 +50,23 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	
-	char* buff = malloc(BUFF_SIZE);
+	unsigned char* buff = malloc(BUFF_SIZE);
 	if(buff == NULL)
 	{
 		fprintf(stderr,"malloc buff err\n");
 		return -1;
 	}
-	long read_size = 0;
-	read_size = fread(buff, BUFF_SIZE, 1, input_file);
-	fprintf(stderr, "read_size = %ld\n", read_size);
-	
-	int ret = decode(buff, BUFF_SIZE);
-	fprintf(stderr, "decode = %d\n", ret);
+	unsigned long read_size = 0;
+	while(1){
+		read_size = fread(buff, 1, BUFF_SIZE, input_file);
+		fprintf(stderr, "read_size = %ld\n", read_size);
+
+		decode(buff, read_size);
+		sleep(1);
+		memset(buff, 0, BUFF_SIZE);
+		if(0 == read_size)
+			break;
+	}
 	free(buff);
 	buff = NULL;
 	fclose(input_file);
