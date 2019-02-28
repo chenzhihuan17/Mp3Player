@@ -28,6 +28,49 @@
 #include "mad/mad.h"
 
 #if 1
+
+#define BUFSIZE 	10 * 1024
+struct buffer {
+  FILE  *fp;                    /*file pointer*/
+  unsigned int  flen;           /*file length*/
+  unsigned int  fpos;           /*current position*/
+  unsigned char fbuf[BUFSIZE];  /*buffer*/
+  unsigned int  fbsize;         /*indeed size of buffer*/
+};
+typedef struct buffer mp3_file;
+
+static
+enum mad_flow input(void *data,
+		    struct mad_stream *stream)
+{
+  mp3_file *mp3fp;
+  int      unproc_data_size;    /*the unprocessed data's size*/
+  int      copy_size;
+  int 	read_size;
+
+  mp3fp = (mp3_file *)data;
+  unproc_data_size = stream->bufend - stream->next_frame;
+  fprintf(stderr,"unproc_data_size = %d\n", unproc_data_size);
+  memcpy(mp3fp->fbuf, mp3fp->fbuf + mp3fp->fbsize - unproc_data_size, unproc_data_size);
+  copy_size = mp3fp->fbsize - unproc_data_size;
+  read_size = fread(mp3fp->fbuf + unproc_data_size, 1, copy_size, mp3fp->fp);
+  fprintf(stderr,"read_size = %d\n", read_size);
+  /*Hand off the buffer to the mp3 input stream*/
+  mad_stream_buffer(stream, mp3fp->fbuf, read_size + unproc_data_size);
+  if(0 != read_size)
+	{
+		
+		return MAD_FLOW_CONTINUE;
+	}
+  
+  else
+  {
+  	  fprintf(stderr,"###############MAD_FLOW_STOP\n");
+      return MAD_FLOW_STOP;
+  }
+}
+
+
 /*
  * This is perhaps the simplest example use of the MAD high-level API.
  * Standard input is mapped into memory via mmap(), then the high-level API
@@ -36,20 +79,43 @@
  * writes them to standard output in little-endian, stereo-interleaved
  * format.
  */
-
-static int decode(unsigned char const *, unsigned long);
+			
+static int decode(mp3_file *);
 #define BUFF_SIZE 8192 * 11 
 int main(int argc, char *argv[])
 {
-	FILE *input_file;
-	input_file = fopen("./1.mp3", "rb");
 	
-	if(input_file == NULL)
+	long flen, fsta, fend;
+	int  dlen;
+	mp3_file *mp3fp = (mp3_file *)malloc(sizeof(mp3_file));
+	if(mp3fp == NULL)
+	{
+		fprintf(stderr,"malloc mp3_file err\n");
+		return -1;
+	}
+	mp3fp->fp = fopen("./1.mp3", "rb");
+	if(mp3fp->fp == NULL)
 	{
 		fprintf(stderr,"open input file err\n");
 		return -1;
 	}
+	fsta = ftell(mp3fp->fp);
+	fseek(mp3fp->fp, 0, SEEK_END);
+	fend = ftell(mp3fp->fp);
+	flen = fend - fsta;
+	fseek(mp3fp->fp, 0, SEEK_SET);
+	fread(mp3fp->fbuf, 1, BUFSIZE, mp3fp->fp);
+	mp3fp->fbsize = BUFSIZE;
+	mp3fp->fpos   = BUFSIZE;
+	mp3fp->flen   = flen;
+
+	decode(mp3fp);
 	
+	fclose(mp3fp->fp);
+	free(mp3fp);
+	mp3fp = NULL;
+
+	#if 0
 	unsigned char* buff = malloc(BUFF_SIZE);
 	if(buff == NULL)
 	{
@@ -69,30 +135,15 @@ int main(int argc, char *argv[])
 	}
 	free(buff);
 	buff = NULL;
-	fclose(input_file);
-#if 0
-  struct stat stat;
-  void *fdm;
-
-  if (argc != 1)
-    return 1;
-
-  if (fstat(STDIN_FILENO, &stat) == -1 ||
-      stat.st_size == 0)
-    return 2;
-
-  fdm = mmap(0, stat.st_size, PROT_READ, MAP_SHARED, STDIN_FILENO, 0);
-  if (fdm == MAP_FAILED)
-    return 3;
-
-  decode(fdm, stat.st_size);
-
-  if (munmap(fdm, stat.st_size) == -1)
-    return 4;
+	
 #endif
   return 0;
 }
 
+
+
+
+#if 0
 /*
  * This is a private message structure. A generic pointer to this structure
  * is passed to each of the callback functions. Put here any data you need
@@ -127,7 +178,7 @@ enum mad_flow input(void *data,
 
   return MAD_FLOW_CONTINUE;
 }
-
+#endif
 /*
  * The following utility routine performs simple rounding, clipping, and
  * scaling of MAD's high-resolution samples down to 16 bits. It does not
@@ -208,7 +259,7 @@ enum mad_flow error(void *data,
 
   fprintf(stderr, "decoding error 0x%04x (%s) at byte offset %u\n",
 	  stream->error, mad_stream_errorstr(stream),
-	  stream->this_frame - buffer->start);
+	  stream->this_frame - buffer->fpos);
 
   /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
 
@@ -225,20 +276,18 @@ enum mad_flow error(void *data,
  */
 
 static
-int decode(unsigned char const *start, unsigned long length)
+int decode(mp3_file * mp3_fp)
 {
-  struct buffer buffer;
   struct mad_decoder decoder;
   int result;
+  mp3_file *buffer = mp3_fp;
 
   /* initialize our private message structure */
 
-  buffer.start  = start;
-  buffer.length = length;
 
   /* configure input, output, and error functions */
 
-  mad_decoder_init(&decoder, &buffer,
+  mad_decoder_init(&decoder, (void*)buffer,
 		   input, 0 /* header */, 0 /* filter */, output,
 		   error, 0 /* message */);
 
@@ -249,7 +298,6 @@ int decode(unsigned char const *start, unsigned long length)
   /* release the decoder */
 
   mad_decoder_finish(&decoder);
-
   return result;
 }
 #endif
