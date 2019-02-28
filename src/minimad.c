@@ -25,6 +25,7 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <stdlib.h>
+#include "alsa/asoundlib.h"
 #include "mad/mad.h"
 
 #if 1
@@ -33,7 +34,6 @@
 struct buffer {
   FILE  *fp;                    /*file pointer*/
   unsigned int  flen;           /*file length*/
-  unsigned int  fpos;           /*current position*/
   unsigned char fbuf[BUFSIZE];  /*buffer*/
   unsigned int  fbsize;         /*indeed size of buffer*/
 };
@@ -43,31 +43,31 @@ static
 enum mad_flow input(void *data,
 		    struct mad_stream *stream)
 {
-  mp3_file *mp3fp;
-  int      unproc_data_size;    /*the unprocessed data's size*/
-  int      copy_size;
-  int 	read_size;
+	mp3_file *mp3fp;
+	int unproc_data_size;    /*the unprocessed data's size*/
+	int copy_size;
+	int read_size;
 
-  mp3fp = (mp3_file *)data;
-  unproc_data_size = stream->bufend - stream->next_frame;
-  fprintf(stderr,"unproc_data_size = %d\n", unproc_data_size);
-  memcpy(mp3fp->fbuf, mp3fp->fbuf + mp3fp->fbsize - unproc_data_size, unproc_data_size);
-  copy_size = mp3fp->fbsize - unproc_data_size;
-  read_size = fread(mp3fp->fbuf + unproc_data_size, 1, copy_size, mp3fp->fp);
-  fprintf(stderr,"read_size = %d\n", read_size);
-  /*Hand off the buffer to the mp3 input stream*/
-  mad_stream_buffer(stream, mp3fp->fbuf, read_size + unproc_data_size);
-  if(0 != read_size)
-	{
-		
+	mp3fp = (mp3_file *)data;
+	//记录剩余的未被解码的MPEG帧的数据的字节数
+	unproc_data_size = stream->bufend - stream->next_frame;
+	//fprintf(stderr,"unproc_data_size = %d\n", unproc_data_size);
+	//将剩余未被解码的数据拷贝到buff的头部准备进行下次解码
+	memcpy(mp3fp->fbuf, mp3fp->fbuf + mp3fp->fbsize - unproc_data_size, unproc_data_size);
+	copy_size = mp3fp->fbsize - unproc_data_size;
+	//继续从文件中读取数据，将buff填满。
+	read_size = fread(mp3fp->fbuf + unproc_data_size, 1, copy_size, mp3fp->fp);
+	//fprintf(stderr,"read_size = %d\n", read_size);
+	
+	mad_stream_buffer(stream, mp3fp->fbuf, read_size + unproc_data_size);
+	if(0 != read_size){
 		return MAD_FLOW_CONTINUE;
 	}
-  
-  else
-  {
-  	  fprintf(stderr,"###############MAD_FLOW_STOP\n");
-      return MAD_FLOW_STOP;
-  }
+
+	else{
+		fprintf(stderr,"MAD_FLOW_STOP\n");
+		return MAD_FLOW_STOP;
+	}
 }
 
 
@@ -85,8 +85,6 @@ static int decode(mp3_file *);
 int main(int argc, char *argv[])
 {
 	
-	long flen, fsta, fend;
-	int  dlen;
 	mp3_file *mp3fp = (mp3_file *)malloc(sizeof(mp3_file));
 	if(mp3fp == NULL)
 	{
@@ -99,86 +97,17 @@ int main(int argc, char *argv[])
 		fprintf(stderr,"open input file err\n");
 		return -1;
 	}
-	fsta = ftell(mp3fp->fp);
-	fseek(mp3fp->fp, 0, SEEK_END);
-	fend = ftell(mp3fp->fp);
-	flen = fend - fsta;
-	fseek(mp3fp->fp, 0, SEEK_SET);
-	fread(mp3fp->fbuf, 1, BUFSIZE, mp3fp->fp);
 	mp3fp->fbsize = BUFSIZE;
-	mp3fp->fpos   = BUFSIZE;
-	mp3fp->flen   = flen;
 
 	decode(mp3fp);
-	
+
 	fclose(mp3fp->fp);
 	free(mp3fp);
 	mp3fp = NULL;
-
-	#if 0
-	unsigned char* buff = malloc(BUFF_SIZE);
-	if(buff == NULL)
-	{
-		fprintf(stderr,"malloc buff err\n");
-		return -1;
-	}
-	unsigned long read_size = 0;
-	while(1){
-		read_size = fread(buff, 1, BUFF_SIZE, input_file);
-		fprintf(stderr, "read_size = %ld\n", read_size);
-
-		decode(buff, read_size);
-		sleep(1);
-		memset(buff, 0, BUFF_SIZE);
-		if(0 == read_size)
-			break;
-	}
-	free(buff);
-	buff = NULL;
 	
-#endif
-  return 0;
+  	return 0;
 }
 
-
-
-
-#if 0
-/*
- * This is a private message structure. A generic pointer to this structure
- * is passed to each of the callback functions. Put here any data you need
- * to access from within the callbacks.
- */
-
-struct buffer {
-  unsigned char const *start;
-  unsigned long length;
-};
-
-/*
- * This is the input callback. The purpose of this callback is to (re)fill
- * the stream buffer which is to be decoded. In this example, an entire file
- * has been mapped into memory, so we just call mad_stream_buffer() with the
- * address and length of the mapping. When this callback is called a second
- * time, we are finished decoding.
- */
-
-static
-enum mad_flow input(void *data,
-		    struct mad_stream *stream)
-{
-  struct buffer *buffer = data;
-
-  if (!buffer->length)
-    return MAD_FLOW_STOP;
-
-  mad_stream_buffer(stream, buffer->start, buffer->length);
-
-  buffer->length = 0;
-
-  return MAD_FLOW_CONTINUE;
-}
-#endif
 /*
  * The following utility routine performs simple rounding, clipping, and
  * scaling of MAD's high-resolution samples down to 16 bits. It does not
@@ -203,6 +132,72 @@ signed int scale(mad_fixed_t sample)
   return sample >> (MAD_F_FRACBITS + 1 - 16);
 }
 
+/* open a PCM device */
+
+snd_pcm_t *playback_handle;
+int open_device()
+{
+    int err;
+    snd_pcm_hw_params_t *hw_params;
+	char *pcm_name = "plughw:0,0";
+	int rate = 44100;
+	int channels = 2;
+	
+	if ((err = snd_pcm_open (&playback_handle,
+			pcm_name, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
+		printf("cannot open audio device %s (%s)\n",pcm_name,snd_strerror (err));
+		return -1;
+	}
+
+	if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
+		printf("cannot allocate hardware parameter structure (%s)\n",
+		snd_strerror (err));
+		return -1;
+	}
+
+	if ((err = snd_pcm_hw_params_any (playback_handle, hw_params)) < 0) {
+		printf("cannot initialize hardware parameter structure (%s)\n",
+		snd_strerror (err));
+		return -1;
+	}
+
+	if ((err = snd_pcm_hw_params_set_access (playback_handle, hw_params,
+			SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+		printf("cannot set access type (%s)\n", snd_strerror (err));
+		return -1;
+	}
+
+	if ((err = snd_pcm_hw_params_set_format (playback_handle, 
+			hw_params, SND_PCM_FORMAT_S16_LE)) < 0) {
+		printf("cannot set sample format (%s)\n", snd_strerror (err));
+		return -1;
+	}
+	if ((err = snd_pcm_hw_params_set_rate_near (playback_handle, 
+			hw_params, &rate, 0)) < 0) {
+		printf("cannot set sample rate (%s)\n", snd_strerror (err));
+		return -1;
+	}
+
+	if ((err = snd_pcm_hw_params_set_channels (playback_handle,
+			hw_params, channels)) < 0) {
+		printf("cannot set channel count (%s)\n", snd_strerror (err));
+		return -1;
+	}
+	if ((err = snd_pcm_hw_params (playback_handle, hw_params)) < 0) {
+		printf("cannot set parameters (%s)\n",
+		snd_strerror (err));
+		return -1;
+	}
+	snd_pcm_hw_params_free (hw_params);
+	if ((err = snd_pcm_prepare (playback_handle)) < 0) {
+		printf("cannot prepare audio interface for use (%s)\n",snd_strerror (err));
+		return -1;
+	}
+
+	return 0;
+}
+
+
 /*
  * This is the output callback function. It is called after each frame of
  * MPEG audio data has been completely decoded. The purpose of this callback
@@ -214,6 +209,50 @@ enum mad_flow output(void *data,
 		     struct mad_header const *header,
 		     struct mad_pcm *pcm)
 {
+	unsigned int nchannels, nsamples,n;
+	  mad_fixed_t const *left_ch, *right_ch;
+	
+	  /* pcm->samplerate contains the sampling frequency */
+	
+	  nchannels = pcm->channels;
+	  n=nsamples = pcm->length;
+	  left_ch = pcm->samples[0];
+	  right_ch = pcm->samples[1];
+	  
+	  unsigned char Output[6912], *OutputPtr; 
+	  int fmt, wrote, speed, exact_rate, err, dir; 
+	  
+	  
+	   OutputPtr = Output; 
+	   
+	   while (nsamples--) 
+	   {
+		signed int sample;
+	
+		/* output sample(s) in 16-bit signed little-endian PCM */
+		
+		sample = scale(*left_ch++);
+	   
+		*(OutputPtr++) = sample >> 0; 
+		*(OutputPtr++) = sample >> 8; 
+		if (nchannels == 2) 
+			{ 
+				sample = scale (*right_ch++); 
+				*(OutputPtr++) = sample >> 0; 
+				*(OutputPtr++) = sample >> 8; 
+			} 
+		
+	  
+	  }
+	 
+		OutputPtr = Output; 
+		snd_pcm_writei (playback_handle, OutputPtr, n); 
+		OutputPtr = Output; 
+	
+	  return MAD_FLOW_CONTINUE;
+
+
+#if 0
   unsigned int nchannels, nsamples;
   mad_fixed_t const *left_ch, *right_ch;
 
@@ -241,6 +280,7 @@ enum mad_flow output(void *data,
   }
 
   return MAD_FLOW_CONTINUE;
+#endif
 }
 
 /*
@@ -259,7 +299,7 @@ enum mad_flow error(void *data,
 
   fprintf(stderr, "decoding error 0x%04x (%s) at byte offset %u\n",
 	  stream->error, mad_stream_errorstr(stream),
-	  stream->this_frame - buffer->fpos);
+	  stream->this_frame);
 
   /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
 
@@ -290,7 +330,7 @@ int decode(mp3_file * mp3_fp)
   mad_decoder_init(&decoder, (void*)buffer,
 		   input, 0 /* header */, 0 /* filter */, output,
 		   error, 0 /* message */);
-
+	open_device();
   /* start decoding */
 
   result = mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
