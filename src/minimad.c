@@ -91,10 +91,15 @@ int main(int argc, char *argv[])
 		fprintf(stderr,"malloc mp3_file err\n");
 		return -1;
 	}
-	mp3fp->fp = fopen("./1.mp3", "rb");
+	if(argc != 2){
+		fprintf(stderr,"usage: ./mp3play filename\n");
+		return -1;
+	}
+	printf("%s\n", argv[1]);
+	mp3fp->fp = fopen(argv[1], "rb");
 	if(mp3fp->fp == NULL)
 	{
-		fprintf(stderr,"open input file err\n");
+		fprintf(stderr,"usage: ./mp3play filename\n");
 		return -1;
 	}
 	mp3fp->fbsize = BUFSIZE;

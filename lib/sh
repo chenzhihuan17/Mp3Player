@@ -1,0 +1,4 @@
+1 >>> zlib
+2 >>> curl ... ... ...
+./configure --prefix='/home/zhh/libb/11/alsa' --enable-shared=no --enable-static=yes
+make && make install
